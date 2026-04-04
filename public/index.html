@@ -97,10 +97,10 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 .thumb-wrap { position:relative; width:72px; height:72px; flex-shrink:0; cursor:pointer; }
 .thumb-wrap:hover .thumb-overlay { opacity:1; }
 .thumb-overlay { position:absolute; inset:0; border-radius:5px; background:rgba(26,26,26,0.55); display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity 0.15s; pointer-events:none; }
-.thumb-overlay-text { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:0.1em; color:white; text-transform:uppercase; text-align:center; line-height:1.5; }
+.thumb-overlay-text { font-family:DM Mono,monospace; font-size:8px; letter-spacing:0.1em; color:white; text-transform:uppercase; text-align:center; line-height:1.5; }
 .thumb-file-input { display:none; }
 .add-more-section { margin-top:28px; padding-top:24px; border-top:2px dashed var(--rule); }
-.lookup-new-btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:12px 24px; background:none; color:var(--ink); border:1px solid var(--rule); border-radius:6px; font-family:'DM Mono',monospace; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; cursor:pointer; margin-top:14px; transition:all 0.2s; }
+.lookup-new-btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:12px 24px; background:none; color:var(--ink); border:1px solid var(--rule); border-radius:6px; font-family:DM Mono,monospace; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; cursor:pointer; margin-top:14px; transition:all 0.2s; }
 .lookup-new-btn:hover:not(:disabled) { background:var(--ink); color:white; border-color:var(--ink); }
 .lookup-new-btn:disabled { opacity:0.45; cursor:not-allowed; }
 .item-title { font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
@@ -213,7 +213,7 @@ input:checked + .slider::before { transform: translateX(18px); }
       <button class="tab-btn" onclick="newQuote()">＋ New</button>
       <button class="tab-btn" onclick="duplicateQuote()">⎘ Duplicate</button>
     </div>
-    <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink-light);" id="saveStatus"></div>
+    <div style="font-family:DM Mono,monospace;font-size:10px;color:var(--ink-light);" id="saveStatus"></div>
   </div>
 
   <div class="section-label">Quote Details</div>
@@ -357,8 +357,8 @@ input:checked + .slider::before { transform: translateX(18px); }
   <!-- Client view toggle -->
   <div class="client-toggle-row">
     <div>
-      <div style="font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-mid);">Client View</div>
-      <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--ink-light);margin-top:3px;">Hide unit costs on export</div>
+      <div style="font-family:DM Mono,monospace;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-mid);">Client View</div>
+      <div style="font-family:DM Mono,monospace;font-size:9px;color:var(--ink-light);margin-top:3px;">Hide unit costs on export</div>
     </div>
     <label class="toggle-switch">
       <input type="checkbox" id="clientViewToggle" onchange="renderItems()">
@@ -551,12 +551,12 @@ function renderItems() {
           <div class="item-meta-row">
             <span class="item-source"><a href="${item.url}" target="_blank">${item.source}</a></span>
             <span class="status-pill ${sc}">${sl}</span>
-            ${item.status==='ok'?`<span style="font-family:'DM Mono',monospace;font-size:9px;color:var(--ink-light)">verified ${vDate}</span>`:''}
+            ${item.status==='ok'?`<span style="font-family:DM Mono,monospace;font-size:9px;color:var(--ink-light)">verified ${vDate}</span>`:''}
           </div>
           ${!cv&&up?`<div class="item-price-detail">Unit: <b>$${parseFloat(up).toFixed(2)}</b> × Qty <b>${item.qty}</b>${item.shipping?` + Ship <b>$${parseFloat(item.shipping*item.qty).toFixed(2)}</b>`:''}</div>`:''}
         </div>
         <div class="item-pricing-block">
-          <div style="font-family:'DM Mono',monospace;font-size:9px;color:var(--ink-light);margin-bottom:3px;">LINE TOTAL</div>
+          <div style="font-family:DM Mono,monospace;font-size:9px;color:var(--ink-light);margin-bottom:3px;">LINE TOTAL</div>
           <div class="line-total">${lineTotal}</div>
           <div class="line-sub">${item.qty} unit${item.qty!==1?'s':''}</div>
           <div class="approved-badge" style="color:${item.approved?'#2d7a52':'var(--ink-light)'}">${item.approved?'✓ Approved':'Pending'}</div>
@@ -663,12 +663,19 @@ function removeMoreRow(id) {
 function renderMoreRows() {
   var el = document.getElementById('addMoreList');
   if(!el) return;
-  el.innerHTML = moreRows.map(function(r){ return '<div class="url-input-row">'
-    + '<input type="url" placeholder="https://…" value="'+esc(r.url)+'" oninput="updMoreRow('+r.id+','url',this.value)" />'
-    + '<input type="number" min="1" value="'+r.qty+'" style="text-align:center;" oninput="updMoreRow('+r.id+','qty',Math.max(1,parseInt(this.value)||1))" />'
-    + '<input type="number" min="0" step="0.01" value="'+(r.shipping||'')+'" placeholder="0.00" oninput="updMoreRow('+r.id+','shipping',parseFloat(this.value)||0)" />'
-    + '<button class="btn-remove" onclick="removeMoreRow('+r.id+')">&#215;</button>'
-    + '</div>';
+  el.innerHTML = moreRows.map(function(r) {
+    var id = r.id;
+    return [
+      '<div class="url-input-row">',
+      '<input type="url" placeholder="https://www.amazon.com/dp/…" value="' + esc(r.url) + '"',
+      ' oninput="updMoreRow(' + id + ',\'url\',this.value)" />',
+      '<input type="number" min="1" value="' + r.qty + '" style="text-align:center;"',
+      ' oninput="updMoreRow(' + id + ',\'qty\',Math.max(1,parseInt(this.value)||1))" />',
+      '<input type="number" min="0" step="0.01" value="' + (r.shipping||'') + '" placeholder="0.00"',
+      ' oninput="updMoreRow(' + id + ',\'shipping\',parseFloat(this.value)||0)" />',
+      '<button class="btn-remove" onclick="removeMoreRow(' + id + ')">&#215;</button>',
+      '</div>'
+    ].join('');
   }).join('');
 }
 function updMoreRow(id, field, val) {
@@ -846,12 +853,12 @@ async function openLoadModal() {
 
   // Load cloud quotes
   const cloudList = document.getElementById('cloudList');
-  cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink-light);padding:14px 0;">Loading from cloud…</div>';
+  cloudList.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:10px;color:var(--ink-light);padding:14px 0;">Loading from cloud…</div>';
   try {
     const res = await fetch('/.netlify/functions/load-quotes');
     const quotes = await res.json();
     if (!Array.isArray(quotes) || !quotes.length) {
-      cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No cloud quotes yet. Save one first.</div>';
+      cloudList.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No cloud quotes yet. Save one first.</div>';
     } else {
       cloudList.innerHTML = '';
       quotes.forEach(function(q) {
@@ -863,14 +870,14 @@ async function openLoadModal() {
       });
     }
   } catch(err) {
-    cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--error);padding:12px 0;">Could not reach cloud: ' + err.message + '</div>';
+    cloudList.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:11px;color:var(--error);padding:12px 0;">Could not reach cloud: ' + err.message + '</div>';
   }
 
   // Load local quotes
   const localList = document.getElementById('localList');
   const localSaved = JSON.parse(localStorage.getItem('handsQuotes') || '[]').sort(function(a,b){ return b.savedAt - a.savedAt; });
   if (!localSaved.length) {
-    localList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No locally saved quotes on this device.</div>';
+    localList.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No locally saved quotes on this device.</div>';
   } else {
     localList.innerHTML = '';
     localSaved.forEach(function(q, i) {
@@ -885,7 +892,7 @@ async function openLoadModal() {
 
 async function loadQuoteFromCloud(qn) {
   const cloudList = document.getElementById('cloudList');
-  cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink-light);padding:14px 0;">Loading quote…</div>';
+  cloudList.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:10px;color:var(--ink-light);padding:14px 0;">Loading quote…</div>';
   try {
     const res = await fetch('/.netlify/functions/load-quotes?quoteNumber=' + encodeURIComponent(qn));
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -893,7 +900,7 @@ async function loadQuoteFromCloud(qn) {
     applyQuote(q);
     closeModal();
   } catch(err) {
-    cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--error);padding:12px 0;">Load failed: ' + err.message + '</div>';
+    cloudList.innerHTML = '<div style="font-family:DM Mono,monospace;font-size:11px;color:var(--error);padding:12px 0;">Load failed: ' + err.message + '</div>';
   }
 }
 
