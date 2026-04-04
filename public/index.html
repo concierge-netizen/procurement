@@ -408,16 +408,19 @@ function genQNum() {
 }
 
 // INIT
-document.getElementById('dateDisplay').textContent = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-document.getElementById('quoteNumDisplay').textContent = quoteNumber;
-document.getElementById('sumQuoteNum').textContent = quoteNumber;
-const d = new Date(); d.setDate(d.getDate()+7);
-document.getElementById('expiryDate').value = d.toISOString().split('T')[0];
-addRow(); addRow(); addRow();
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('dateDisplay').textContent = new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  document.getElementById('quoteNumDisplay').textContent = quoteNumber;
+  document.getElementById('sumQuoteNum').textContent = quoteNumber;
+  const d = new Date(); d.setDate(d.getDate()+7);
+  document.getElementById('expiryDate').value = d.toISOString().split('T')[0];
+  document.getElementById('loadModal').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+  addRow(); addRow(); addRow();
+});
 
 // ROWS
 function addRow() {
-  rows.push({ id: Date.now()+Math.random(), url:'', qty:1, shipping:0 });
+  rows.push({ id: Date.now()*1000+Math.floor(Math.random()*1000), url:'', qty:1, shipping:0 });
   renderRows();
 }
 function removeRow(id) {
@@ -523,7 +526,7 @@ function renderItems() {
   const cv=document.getElementById('clientViewToggle').checked;
   sec.style.display=items.length?'block':'none';
   if(!items.length) return;
-  if(!moreRows.length){ moreRows=[{id:Date.now(),url:'',qty:1,shipping:0}]; }
+  if(!moreRows.length){ moreRows=[{id:Date.now()*1000+1,url:'',qty:1,shipping:0}]; }
   setTimeout(renderMoreRows, 0);
   const vDate=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
 
@@ -651,7 +654,7 @@ async function handlePhotoUpload(i, input) {
 // Add-more rows (appends to existing quote without reset)
 var moreRows = [];
 function addMoreRow() {
-  moreRows.push({ id: Date.now()+Math.random(), url:'', qty:1, shipping:0 });
+  moreRows.push({ id: Date.now()*1000+Math.floor(Math.random()*1000), url:'', qty:1, shipping:0 });
   renderMoreRows();
 }
 function removeMoreRow(id) {
@@ -939,7 +942,6 @@ function deleteLocalQuote(i) {
 }
 
 function closeModal() { document.getElementById('loadModal').classList.add('hidden'); }
-document.getElementById('loadModal').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
 
 function newQuote() {
   if(items.length&&!confirm('Start a new quote? Unsaved changes will be lost.')) return;
