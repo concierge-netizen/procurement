@@ -383,10 +383,15 @@ input:checked + .slider::before { transform: translateX(18px); }
 
 <!-- Load Modal -->
 <div class="modal-overlay hidden" id="loadModal">
-  <div class="modal">
+  <div class="modal" style="width:500px;">
     <div class="modal-title">Saved Quotes</div>
-    <div class="modal-list" id="savedList"></div>
-    <div style="display:flex;gap:10px;">
+    <div style="display:flex;gap:6px;margin-bottom:16px;">
+      <button class="tab-btn active" id="tabCloud" onclick="switchModalTab('cloud')" style="flex:1;">☁ Cloud</button>
+      <button class="tab-btn" id="tabLocal" onclick="switchModalTab('local')" style="flex:1;">💻 This Device</button>
+    </div>
+    <div id="cloudList" class="modal-list"></div>
+    <div id="localList" class="modal-list" style="display:none;"></div>
+    <div style="display:flex;gap:10px;margin-top:4px;">
       <button class="tab-btn" onclick="closeModal()" style="flex:1;">Close</button>
     </div>
   </div>
@@ -588,20 +593,59 @@ function clearPrice(i) { items[i].price=null; items[i].manualPrice=null; items[i
 function toggleNote(i) { items[i]._showNote=!items[i]._showNote; renderItems(); }
 function toggleAlt(i) { items[i]._showAlt=!items[i]._showAlt; renderItems(); }
 
-// Photo upload
+// Photo upload → Cloudinary
+var CLOUDINARY_CLOUD = 'dxkpbjicu';
+var CLOUDINARY_PRESET = 'hands_pod_photos'; // unsigned upload preset
+
 function triggerPhotoUpload(i) {
   const inp = document.getElementById('photoInput-'+i);
   if(inp) inp.click();
 }
-function handlePhotoUpload(i, input) {
+
+async function handlePhotoUpload(i, input) {
   const file = input.files && input.files[0];
   if(!file) return;
+
+  // Show local preview immediately while uploading
   const reader = new FileReader();
   reader.onload = function(e) {
-    items[i].uploadedImage = e.target.result;
+    items[i].uploadedImage = e.target.result; // temp base64 preview
     renderItems();
   };
   reader.readAsDataURL(file);
+
+  // Show uploading state on thumb
+  const wrap = document.querySelector('#card-'+i+' .thumb-wrap');
+  if(wrap) wrap.setAttribute('title','Uploading…');
+
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('upload_preset', CLOUDINARY_PRESET);
+    fd.append('folder', 'procurement');
+
+    const res = await fetch(
+      'https://api.cloudinary.com/v1_1/' + CLOUDINARY_CLOUD + '/image/upload',
+      { method: 'POST', body: fd }
+    );
+    if(!res.ok) throw new Error('Cloudinary HTTP ' + res.status);
+    const data = await res.json();
+
+    if(data.secure_url) {
+      // Replace temp base64 with permanent CDN URL — safe to save in localStorage
+      items[i].uploadedImage = data.secure_url;
+      items[i].imageUrl = data.secure_url; // also set as primary image
+      renderItems();
+      console.log('Cloudinary upload OK:', data.secure_url);
+    } else {
+      throw new Error(data.error && data.error.message || 'No URL returned');
+    }
+  } catch(err) {
+    // Upload failed — keep the local base64 preview, warn user
+    console.warn('Cloudinary upload failed, using local preview:', err.message);
+    const wrap2 = document.querySelector('#card-'+i+' .thumb-wrap');
+    if(wrap2) wrap2.setAttribute('title', 'Upload failed — photo is local only (will not persist after refresh)');
+  }
 }
 
 // Add-more rows (appends to existing quote without reset)
@@ -700,63 +744,202 @@ function getTotals() {
 
 function fmt(n) { return '$'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
 
-// SAVE / LOAD
-function saveQuote() {
-  const name=document.getElementById('projectName').value||quoteNumber;
-  const data={quoteNumber,name,rows,items,feeMode,chargeType,
-    feeValue:document.getElementById('feeValue').value,
-    stateSelect:document.getElementById('stateSelect').value,
-    clientName:document.getElementById('clientName').value,
-    expiryDate:document.getElementById('expiryDate').value,
-    savedAt:Date.now()};
-  const saved=JSON.parse(localStorage.getItem('handsQuotes')||'[]');
-  const idx=saved.findIndex(q=>q.quoteNumber===quoteNumber);
-  if(idx>=0) saved[idx]=data; else saved.push(data);
-  localStorage.setItem('handsQuotes',JSON.stringify(saved));
-  const s=document.getElementById('saveStatus');
-  s.textContent='✓ Saved '+new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-  setTimeout(()=>s.textContent='',3000);
+// SAVE / LOAD — Cloud (GitHub) + Local (localStorage) dual storage
+
+var _modalTab = 'cloud';
+
+function buildQuoteData() {
+  const name = document.getElementById('projectName').value || quoteNumber;
+  const itemsToSave = items.map(function(it) {
+    const copy = Object.assign({}, it);
+    if (copy.uploadedImage && copy.uploadedImage.startsWith('data:')) delete copy.uploadedImage;
+    delete copy._showNote; delete copy._showAlt;
+    return copy;
+  });
+  return {
+    quoteNumber, name, rows, items: itemsToSave, feeMode, chargeType,
+    feeValue: document.getElementById('feeValue').value,
+    stateSelect: document.getElementById('stateSelect').value,
+    clientName: document.getElementById('clientName').value,
+    expiryDate: document.getElementById('expiryDate').value,
+    savedAt: Date.now()
+  };
 }
-function openLoadModal() {
-  const saved=JSON.parse(localStorage.getItem('handsQuotes')||'[]');
-  const list=document.getElementById('savedList');
-  if(!saved.length){list.innerHTML='<div style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No saved quotes found.</div>';}
-  else {
-    list.innerHTML=[...saved].sort((a,b)=>b.savedAt-a.savedAt).map((q,i)=>`
-      <div class="save-item">
-        <div onclick="loadQuote(${i})" style="flex:1;cursor:pointer;">
-          <div class="save-item-name">${q.name}</div>
-          <div class="save-item-meta">${q.quoteNumber} · ${new Date(q.savedAt).toLocaleDateString()}</div>
-        </div>
-        <button class="card-mini-btn danger" onclick="deleteSaved(${i},event)" style="font-size:9px;padding:5px 10px;">Delete</button>
-      </div>`).join('');
+
+function setSaveStatus(msg, isError) {
+  const s = document.getElementById('saveStatus');
+  s.style.color = isError ? 'var(--error)' : 'var(--green-dim)';
+  s.textContent = msg;
+  if (!isError) setTimeout(function(){ s.textContent = ''; }, 4000);
+}
+
+async function saveQuote() {
+  const data = buildQuoteData();
+  setSaveStatus('Saving…', false);
+
+  // Save to cloud (GitHub via Netlify function)
+  let cloudOk = false;
+  try {
+    const res = await fetch('/.netlify/functions/save-quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const result = await res.json();
+    if (!res.ok || result.error) throw new Error(result.error || 'Save failed');
+    cloudOk = true;
+  } catch(err) {
+    console.warn('Cloud save failed:', err.message);
   }
+
+  // Always also save locally as backup
+  try {
+    const saved = JSON.parse(localStorage.getItem('handsQuotes') || '[]');
+    const idx = saved.findIndex(function(q){ return q.quoteNumber === quoteNumber; });
+    if (idx >= 0) saved[idx] = data; else saved.push(data);
+    localStorage.setItem('handsQuotes', JSON.stringify(saved));
+  } catch(err) {
+    console.warn('Local save failed:', err.message);
+  }
+
+  if (cloudOk) {
+    setSaveStatus('✓ Saved to cloud · ' + new Date().toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'}), false);
+  } else {
+    setSaveStatus('⚠ Saved locally only (cloud unavailable)', true);
+  }
+}
+
+function switchModalTab(tab) {
+  _modalTab = tab;
+  document.getElementById('tabCloud').classList.toggle('active', tab === 'cloud');
+  document.getElementById('tabLocal').classList.toggle('active', tab === 'local');
+  document.getElementById('cloudList').style.display = tab === 'cloud' ? 'block' : 'none';
+  document.getElementById('localList').style.display = tab === 'local' ? 'block' : 'none';
+}
+
+function renderSaveItem(q, onLoad, onDelete) {
+  const itemCount = (q.items || []).length;
+  const total = (q.items || []).reduce(function(sum, it) {
+    const up = it.manualPrice != null ? it.manualPrice : (it.price || 0);
+    return sum + up * (it.qty || 1);
+  }, 0);
+  const div = document.createElement('div');
+  div.className = 'save-item';
+  div.innerHTML = '<div style="flex:1;cursor:pointer;" class="save-item-body">'
+    + '<div class="save-item-name">' + (q.name || q.quoteNumber) + '</div>'
+    + '<div class="save-item-meta">' + q.quoteNumber
+    + (q.clientName ? ' &nbsp;·&nbsp; ' + q.clientName : '')
+    + ' &nbsp;·&nbsp; ' + new Date(q.savedAt).toLocaleDateString()
+    + ' &nbsp;·&nbsp; ' + itemCount + ' item' + (itemCount !== 1 ? 's' : '')
+    + (total > 0 ? ' &nbsp;·&nbsp; $' + total.toFixed(2) : '')
+    + '</div></div>'
+    + '<button class="card-mini-btn danger del-btn" style="font-size:9px;padding:5px 10px;">Delete</button>';
+  div.querySelector('.save-item-body').addEventListener('click', onLoad);
+  div.querySelector('.del-btn').addEventListener('click', onDelete);
+  return div;
+}
+
+async function openLoadModal() {
   document.getElementById('loadModal').classList.remove('hidden');
+  switchModalTab('cloud');
+
+  // Load cloud quotes
+  const cloudList = document.getElementById('cloudList');
+  cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink-light);padding:14px 0;">Loading from cloud…</div>';
+  try {
+    const res = await fetch('/.netlify/functions/load-quotes');
+    const quotes = await res.json();
+    if (!Array.isArray(quotes) || !quotes.length) {
+      cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No cloud quotes yet. Save one first.</div>';
+    } else {
+      cloudList.innerHTML = '';
+      quotes.forEach(function(q) {
+        const el = renderSaveItem(q,
+          function() { loadQuoteFromCloud(q.quoteNumber); },
+          function(e) { e.stopPropagation(); deleteCloudQuote(q.quoteNumber); }
+        );
+        cloudList.appendChild(el);
+      });
+    }
+  } catch(err) {
+    cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--error);padding:12px 0;">Could not reach cloud: ' + err.message + '</div>';
+  }
+
+  // Load local quotes
+  const localList = document.getElementById('localList');
+  const localSaved = JSON.parse(localStorage.getItem('handsQuotes') || '[]').sort(function(a,b){ return b.savedAt - a.savedAt; });
+  if (!localSaved.length) {
+    localList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--ink-light);padding:12px 0;">No locally saved quotes on this device.</div>';
+  } else {
+    localList.innerHTML = '';
+    localSaved.forEach(function(q, i) {
+      const el = renderSaveItem(q,
+        function() { applyQuote(q); closeModal(); },
+        function(e) { e.stopPropagation(); deleteLocalQuote(i); }
+      );
+      localList.appendChild(el);
+    });
+  }
 }
-function loadQuote(i) {
-  const saved=[...JSON.parse(localStorage.getItem('handsQuotes')||'[]')].sort((a,b)=>b.savedAt-a.savedAt);
-  const q=saved[i];
-  quoteNumber=q.quoteNumber; rows=q.rows; items=q.items||[];
-  feeMode=q.feeMode||'pct'; chargeType=q.chargeType||'fee';
-  document.getElementById('projectName').value=q.name;
-  document.getElementById('clientName').value=q.clientName||'';
-  document.getElementById('expiryDate').value=q.expiryDate||'';
-  document.getElementById('feeValue').value=q.feeValue||20;
-  document.getElementById('stateSelect').value=q.stateSelect||'8.375';
-  document.getElementById('quoteNumDisplay').textContent=quoteNumber;
-  document.getElementById('sumQuoteNum').textContent=quoteNumber;
-  setChargeType(chargeType); setFeeMode(feeMode);
-  renderRows(); renderItems(); recalc(); closeModal();
+
+async function loadQuoteFromCloud(qn) {
+  const cloudList = document.getElementById('cloudList');
+  cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--ink-light);padding:14px 0;">Loading quote…</div>';
+  try {
+    const res = await fetch('/.netlify/functions/load-quotes?quoteNumber=' + encodeURIComponent(qn));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const q = await res.json();
+    applyQuote(q);
+    closeModal();
+  } catch(err) {
+    cloudList.innerHTML = '<div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--error);padding:12px 0;">Load failed: ' + err.message + '</div>';
+  }
 }
-function deleteSaved(i,e) {
-  e.stopPropagation();
-  const saved=[...JSON.parse(localStorage.getItem('handsQuotes')||'[]')].sort((a,b)=>b.savedAt-a.savedAt);
-  saved.splice(i,1);
-  localStorage.setItem('handsQuotes',JSON.stringify(saved));
+
+function applyQuote(q) {
+  quoteNumber = q.quoteNumber;
+  rows = q.rows || [];
+  items = (q.items || []).map(function(it) {
+    return Object.assign({ _showNote: false, _showAlt: false }, it);
+  });
+  feeMode = q.feeMode || 'pct';
+  chargeType = q.chargeType || 'fee';
+  document.getElementById('projectName').value = q.name || '';
+  document.getElementById('clientName').value = q.clientName || '';
+  document.getElementById('expiryDate').value = q.expiryDate || '';
+  document.getElementById('feeValue').value = q.feeValue || 20;
+  document.getElementById('stateSelect').value = q.stateSelect || '8.375';
+  document.getElementById('quoteNumDisplay').textContent = quoteNumber;
+  document.getElementById('sumQuoteNum').textContent = quoteNumber;
+  setChargeType(chargeType);
+  setFeeMode(feeMode);
+  renderRows();
+  renderItems();
+  recalc();
+}
+
+async function deleteCloudQuote(qn) {
+  if (!confirm('Delete "' + qn + '" from cloud? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/.netlify/functions/load-quotes?quoteNumber=' + encodeURIComponent(qn), { method: 'DELETE' });
+    const result = await res.json();
+    if (!res.ok || result.error) throw new Error(result.error || 'Delete failed');
+    openLoadModal(); // refresh
+  } catch(err) {
+    alert('Delete failed: ' + err.message);
+  }
+}
+
+function deleteLocalQuote(i) {
+  if (!confirm('Remove this quote from this device?')) return;
+  const saved = JSON.parse(localStorage.getItem('handsQuotes') || '[]').sort(function(a,b){ return b.savedAt - a.savedAt; });
+  saved.splice(i, 1);
+  try { localStorage.setItem('handsQuotes', JSON.stringify(saved)); } catch(e) {}
   openLoadModal();
 }
+
 function closeModal() { document.getElementById('loadModal').classList.add('hidden'); }
-document.getElementById('loadModal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+document.getElementById('loadModal').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
 
 function newQuote() {
   if(items.length&&!confirm('Start a new quote? Unsaved changes will be lost.')) return;
