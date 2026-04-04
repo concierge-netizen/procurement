@@ -91,7 +91,18 @@ select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmln
 @keyframes slideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .item-card.error-card { border-color: #f5c6cb; background: #fff8f8; }
 
-.card-top { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+.card-top { display: grid; grid-template-columns: 72px 1fr auto; gap: 14px; align-items: start; }
+.item-thumb { width: 72px; height: 72px; object-fit: contain; border-radius: 5px; border: 1px solid var(--rule); background: #f5f5f3; padding: 4px; }
+.item-thumb-placeholder { width: 72px; height: 72px; border-radius: 5px; border: 1px dashed var(--rule); background: #f9f9f7; display:flex; align-items:center; justify-content:center; font-size:24px; color:#ddd; }
+.thumb-wrap { position:relative; width:72px; height:72px; flex-shrink:0; cursor:pointer; }
+.thumb-wrap:hover .thumb-overlay { opacity:1; }
+.thumb-overlay { position:absolute; inset:0; border-radius:5px; background:rgba(26,26,26,0.55); display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity 0.15s; pointer-events:none; }
+.thumb-overlay-text { font-family:'DM Mono',monospace; font-size:8px; letter-spacing:0.1em; color:white; text-transform:uppercase; text-align:center; line-height:1.5; }
+.thumb-file-input { display:none; }
+.add-more-section { margin-top:28px; padding-top:24px; border-top:2px dashed var(--rule); }
+.lookup-new-btn { display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:12px 24px; background:none; color:var(--ink); border:1px solid var(--rule); border-radius:6px; font-family:'DM Mono',monospace; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; cursor:pointer; margin-top:14px; transition:all 0.2s; }
+.lookup-new-btn:hover:not(:disabled) { background:var(--ink); color:white; border-color:var(--ink); }
+.lookup-new-btn:disabled { opacity:0.45; cursor:not-allowed; }
 .item-title { font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; margin-bottom: 4px; }
 .item-meta-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .item-source { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--ink-light); }
@@ -244,6 +255,22 @@ input:checked + .slider::before { transform: translateX(18px); }
     <div class="section-label" style="margin-top:32px;">Line Items</div>
     <div id="itemCards"></div>
     <div class="approval-warning" id="approvalWarning"></div>
+
+    <div class="add-more-section">
+      <div class="section-label">Add More Items</div>
+      <div class="url-col-headers">
+        <div class="col-hdr">Product URL</div>
+        <div class="col-hdr" style="text-align:center;">Qty</div>
+        <div class="col-hdr" style="text-align:center;">Ship $</div>
+        <div></div>
+      </div>
+      <div id="addMoreList"></div>
+      <button class="btn-add-row" onclick="addMoreRow()">&#43; Add URL</button>
+      <button class="lookup-new-btn" id="lookupMoreBtn" onclick="lookupMore()">
+        <div class="spinner" id="spinnerMore" style="display:none;"></div>
+        <span class="btn-text-more">&#43; Fetch &amp; Add to Quote</span>
+      </button>
+    </div>
   </div>
 
 </div>
@@ -451,83 +478,32 @@ async function lookupAll() {
 
 async function fetchProduct(url, qty, shipping) {
   const domain=(()=>{try{return new URL(url).hostname.replace('www.','')}catch{return url}})();
-
-  // Extract any readable product hint from the URL path for fallback searches
   const urlHint=(()=>{
     try{
       const path=new URL(url).pathname;
       return path.replace(/\//g,' ').replace(/[-_]/g,' ').replace(/\.(html|htm|php|aspx)/gi,'').replace(/\d{5,}/g,'').trim().slice(0,120);
     }catch{return '';}
   })();
-
-  const prompt=`You are a procurement assistant helping a concierge agency source products. You MUST use web_search to find the price of this product. The URL may be behind a login wall or bot block — that is fine, search for the product by name instead.
-
-PRODUCT URL: ${url}
-RETAILER: ${domain}
-URL PATH HINT: ${urlHint}
-
-STRATEGY (try in order until you find a price):
-1. Search for the exact URL to get the product title and price directly.
-2. If that fails, extract the product name from the URL path and search "${domain} [product name] price".
-3. If still blocked, search for the product name on Google Shopping or any other retailer to get a comparable price.
-4. If you find the product on ANY site, use that price and note the actual source.
-
-You MUST make at least 2 web searches before giving up.
-
-Respond ONLY with this JSON (no markdown, no explanation, no extra text):
-{"title":"Full product name here","price":19.99,"currency":"USD","source":"${domain}","available":true}
-
-If after multiple searches you truly cannot find any price, return:
-{"title":"[product name if known, else Unknown]","price":null,"currency":"USD","source":"${domain}","available":false}`;
-
-  try {
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1024,
-        tools:[{type:'web_search_20250305',name:'web_search'}],
-        messages:[{role:'user',content:prompt}]
-      })
+  try{
+    const res=await fetch('/.netlify/functions/lookup-product',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url})
     });
-    const data=await res.json();
-
-    // Collect all text blocks (model may emit text after tool use)
-    let raw='';
-    for(const b of(data.content||[])){
-      if(b.type==='text') raw+=b.text;
-    }
-    raw=raw.trim();
-
-    // Extract JSON — try direct parse first, then regex extraction
-    let parsed=null;
-    try{
-      const clean=raw.replace(/```json|```/g,'').trim();
-      parsed=JSON.parse(clean);
-    }catch{
-      // Try to pull the first {...} block out of mixed text
-      const match=raw.match(/\{[\s\S]*"title"[\s\S]*"price"[\s\S]*\}/);
-      if(match){
-        try{ parsed=JSON.parse(match[0]); }catch{ /* fall through */ }
-      }
-    }
-
-    if(parsed){
-      return{
-        ...parsed,
-        qty, shipping, url,
-        status: parsed.price ? 'ok' : 'manual',
-        manualPrice:null, note:'', altUrl:'', altPrice:null,
-        approved:false, _showNote:false, _showAlt:false
-      };
-    }
-    throw new Error('No parseable JSON in response');
-
-  } catch(err) {
+    if(!res.ok) throw new Error('Function returned '+res.status);
+    const parsed=await res.json();
+    return{
+      ...parsed,
+      qty, shipping, url,
+      status: parsed.price ? 'ok' : 'manual',
+      manualPrice:null, note:'', altUrl:'', altPrice:null,
+      approved:false, _showNote:false, _showAlt:false
+    };
+  }catch(err){
     console.warn('fetchProduct failed for',url,err);
     return{
       title: urlHint ? urlHint.replace(/\b\w/g,c=>c.toUpperCase()).trim() : 'Enter manually',
-      price:null, source:domain, available:false,
+      price:null, source:domain, available:false, imageUrl:null,
       qty, shipping, url, status:'error',
       manualPrice:null, note:'', altUrl:'', altPrice:null,
       approved:false, _showNote:false, _showAlt:false
@@ -542,6 +518,8 @@ function renderItems() {
   const cv=document.getElementById('clientViewToggle').checked;
   sec.style.display=items.length?'block':'none';
   if(!items.length) return;
+  if(!moreRows.length){ moreRows=[{id:Date.now(),url:'',qty:1,shipping:0}]; }
+  setTimeout(renderMoreRows, 0);
   const vDate=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
 
   con.innerHTML=items.map((item,i)=>{
@@ -550,8 +528,18 @@ function renderItems() {
     const sc=item.status==='ok'?'pill-ok':item.status==='manual'?'pill-manual':'pill-error';
     const sl=item.status==='ok'?'Retrieved':item.status==='manual'?'Enter Price':'Error';
     const cc=item.status==='error'?'error-card':'';
+    const thumbSrc = item.uploadedImage || item.imageUrl || null;
+    const thumbInner = thumbSrc
+      ? `<img class="item-thumb" src="${thumbSrc}" alt="" style="display:block" onerror="this.style.display='none'" />`
+      : `<div class="item-thumb-placeholder">🛍</div>`;
+    const imgHtml = `<div class="thumb-wrap" onclick="triggerPhotoUpload(${i})" title="Click to upload a photo">
+        ${thumbInner}
+        <div class="thumb-overlay"><div class="thumb-overlay-text">📷<br>Upload</div></div>
+      </div>
+      <input type="file" accept="image/*" class="thumb-file-input" id="photoInput-${i}" onchange="handlePhotoUpload(${i},this)" />`;
     return `<div class="item-card ${cc}" id="card-${i}">
       <div class="card-top">
+        <div>${imgHtml}</div>
         <div>
           <div class="item-title">${item.title||'Unknown Product'}</div>
           <div class="item-meta-row">
@@ -599,6 +587,66 @@ function applyManual(i) {
 function clearPrice(i) { items[i].price=null; items[i].manualPrice=null; items[i].status='manual'; renderItems(); recalc(); }
 function toggleNote(i) { items[i]._showNote=!items[i]._showNote; renderItems(); }
 function toggleAlt(i) { items[i]._showAlt=!items[i]._showAlt; renderItems(); }
+
+// Photo upload
+function triggerPhotoUpload(i) {
+  const inp = document.getElementById('photoInput-'+i);
+  if(inp) inp.click();
+}
+function handlePhotoUpload(i, input) {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    items[i].uploadedImage = e.target.result;
+    renderItems();
+  };
+  reader.readAsDataURL(file);
+}
+
+// Add-more rows (appends to existing quote without reset)
+var moreRows = [];
+function addMoreRow() {
+  moreRows.push({ id: Date.now()+Math.random(), url:'', qty:1, shipping:0 });
+  renderMoreRows();
+}
+function removeMoreRow(id) {
+  moreRows = moreRows.filter(function(r){ return r.id!==id; });
+  if(!moreRows.length) addMoreRow();
+  renderMoreRows();
+}
+function renderMoreRows() {
+  var el = document.getElementById('addMoreList');
+  if(!el) return;
+  el.innerHTML = moreRows.map(function(r){ return '<div class="url-input-row">'
+    + '<input type="url" placeholder="https://…" value="'+esc(r.url)+'" oninput="updMoreRow('+r.id+','url',this.value)" />'
+    + '<input type="number" min="1" value="'+r.qty+'" style="text-align:center;" oninput="updMoreRow('+r.id+','qty',Math.max(1,parseInt(this.value)||1))" />'
+    + '<input type="number" min="0" step="0.01" value="'+(r.shipping||'')+'" placeholder="0.00" oninput="updMoreRow('+r.id+','shipping',parseFloat(this.value)||0)" />'
+    + '<button class="btn-remove" onclick="removeMoreRow('+r.id+')">&#215;</button>'
+    + '</div>';
+  }).join('');
+}
+function updMoreRow(id, field, val) {
+  var r = moreRows.find(function(x){ return x.id===id; });
+  if(r) r[field] = val;
+}
+async function lookupMore() {
+  var valid = moreRows.filter(function(r){ return r.url && r.url.startsWith('http'); });
+  if(!valid.length){ alert('Enter at least one product URL.'); return; }
+  var btn = document.getElementById('lookupMoreBtn');
+  var sp = document.getElementById('spinnerMore');
+  var lbl = btn.querySelector('.btn-text-more');
+  btn.disabled=true; sp.style.display='block';
+  for(var i=0;i<valid.length;i++){
+    lbl.textContent='Fetching '+(i+1)+' / '+valid.length+'…';
+    var result = await fetchProduct(valid[i].url, valid[i].qty, valid[i].shipping||0);
+    items.push(result);
+  }
+  sp.style.display='none'; btn.disabled=false;
+  lbl.textContent='＋ Fetch & Add to Quote';
+  moreRows=[]; addMoreRow();
+  renderItems(); recalc();
+}
 function useAlt(i) {
   if(!items[i].altUrl){alert('Enter an alternate URL first.');return;}
   const tmp=items[i].url; items[i].url=items[i].altUrl; items[i].altUrl=tmp;
@@ -732,7 +780,32 @@ function duplicateQuote() {
 }
 
 // PDF EXPORT
-function exportPDF() {
+// Load an image URL as base64 via canvas (handles cross-origin gracefully)
+function loadImgAsBase64(url){
+  return new Promise(resolve=>{
+    if(!url){resolve(null);return;}
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>{
+      try{
+        const c=document.createElement('canvas');
+        c.width=img.naturalWidth; c.height=img.naturalHeight;
+        c.getContext('2d').drawImage(img,0,0);
+        resolve(c.toDataURL('image/jpeg',0.85));
+      }catch{resolve(null);}
+    };
+    img.onerror=()=>resolve(null);
+    // Use a CORS proxy for images that block direct canvas access
+    img.src=url;
+    setTimeout(()=>resolve(null),5000); // 5s timeout
+  });
+}
+
+async function exportPDF() {
+  const btn=event.currentTarget;
+  const orig=btn.textContent; btn.textContent='Building PDF…'; btn.disabled=true;
+
+  try{
   const doc=new jsPDF({unit:'pt',format:'letter'});
   const cv=document.getElementById('clientViewToggle').checked;
   const project=document.getElementById('projectName').value||'Procurement Quote';
@@ -741,6 +814,9 @@ function exportPDF() {
   const T=getTotals();
   const W=doc.internal.pageSize.getWidth();
   const ink=[26,26,26], green=[160,214,180], mid=[120,120,120];
+
+  // Pre-load all item images as base64
+  const imgData=await Promise.all(items.map(it=>loadImgAsBase64(it.imageUrl||null)));
 
   // Header
   doc.setFillColor(...ink); doc.rect(0,0,W,64,'F');
@@ -760,24 +836,42 @@ function exportPDF() {
   if(client){ doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(...mid); doc.text('Prepared for: '+client,48,y); y+=14; }
   y+=10;
 
-  const head=cv?[['Item','Qty','Line Total','Notes']]:[['Item','Source','Qty','Unit Price','Shipping','Line Total','Notes']];
+  // Build item rows with images embedded via didDrawCell
+  const ROW_H=56; // min row height to fit thumbnail
+  const IMG_COL=cv?null:0; // image goes in first col (internal view) or separate
+  const head=cv
+    ?[['Photo','Item','Qty','Line Total','Notes']]
+    :[['Photo','Item','Source','Qty','Unit Price','Shipping','Line Total','Notes']];
   const body=items.map(it=>{
     const up=it.manualPrice??it.price;
     const lt=up?fmt(up*it.qty):'—';
     const note=(it.note||'')+(it.approved?' ✓':' (pending)');
-    if(cv) return[it.title||'Unknown',it.qty,lt,note];
-    return[it.title||'Unknown',it.source||'',it.qty,up?fmt(up):'N/A',it.shipping?fmt(it.shipping*it.qty):'—',lt,note];
+    if(cv) return['',it.title||'Unknown',it.qty,lt,note];
+    return['',it.title||'Unknown',it.source||'',it.qty,up?fmt(up):'N/A',it.shipping?fmt(it.shipping*it.qty):'—',lt,note];
   });
 
   doc.autoTable({
-    startY:y,head,body,theme:'grid',
+    startY:y, head, body, theme:'grid',
     headStyles:{fillColor:ink,textColor:255,fontSize:7.5,fontStyle:'bold',cellPadding:6},
-    bodyStyles:{fontSize:8.5,cellPadding:6,textColor:ink},
+    bodyStyles:{fontSize:8.5,cellPadding:6,textColor:ink,minCellHeight:ROW_H},
     alternateRowStyles:{fillColor:[249,249,247]},
     columnStyles:cv
-      ?{0:{cellWidth:'auto'},1:{cellWidth:35,halign:'center'},2:{cellWidth:75,halign:'right'},3:{cellWidth:120}}
-      :{0:{cellWidth:'auto'},1:{cellWidth:75},2:{cellWidth:30,halign:'center'},3:{cellWidth:65,halign:'right'},4:{cellWidth:58,halign:'right'},5:{cellWidth:70,halign:'right'},6:{cellWidth:88}},
-    margin:{left:48,right:48},tableWidth:W-96
+      ?{0:{cellWidth:52},1:{cellWidth:'auto'},2:{cellWidth:35,halign:'center'},3:{cellWidth:75,halign:'right'},4:{cellWidth:110}}
+      :{0:{cellWidth:52},1:{cellWidth:'auto'},2:{cellWidth:68},3:{cellWidth:28,halign:'center'},4:{cellWidth:60,halign:'right'},5:{cellWidth:52,halign:'right'},6:{cellWidth:65,halign:'right'},7:{cellWidth:80}},
+    margin:{left:48,right:48}, tableWidth:W-96,
+    didDrawCell(data){
+      // Draw product thumbnail in column 0 (body rows only)
+      if(data.section==='body' && data.column.index===0){
+        const b64=imgData[data.row.index];
+        if(b64){
+          const pad=4;
+          const sz=Math.min(data.cell.width-pad*2, data.cell.height-pad*2, 44);
+          const cx=data.cell.x+pad;
+          const cy=data.cell.y+(data.cell.height-sz)/2;
+          try{ doc.addImage(b64,'JPEG',cx,cy,sz,sz,undefined,'FAST'); }catch{}
+        }
+      }
+    }
   });
 
   y=doc.lastAutoTable.finalY+24;
@@ -807,6 +901,9 @@ function exportPDF() {
   doc.text('Events and Production. In Better HANDS.',W-48,fY+10,{align:'right'});
 
   doc.save(`HANDS_${quoteNumber}_${project.replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'')}.pdf`);
+  }finally{
+    btn.textContent=orig; btn.disabled=false;
+  }
 }
 
 // TEXT EXPORT
