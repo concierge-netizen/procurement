@@ -398,8 +398,6 @@ input:checked + .slider::before { transform: translateX(18px); }
 </div>
 
 <script>
-const { jsPDF } = window.jspdf;
-
 let rows = [], items = [], feeMode = 'pct', chargeType = 'fee';
 let quoteNumber = genQNum();
 
@@ -987,6 +985,7 @@ function loadImgAsBase64(url){
 }
 
 async function exportPDF() {
+  const { jsPDF } = window.jspdf;
   const btn=event.currentTarget;
   const orig=btn.textContent; btn.textContent='Building PDF…'; btn.disabled=true;
 
